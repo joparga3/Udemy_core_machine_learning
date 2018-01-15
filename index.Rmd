@@ -1,0 +1,583 @@
+---
+title: "Core machine learning"
+author: "Jose Parreno Garcia"
+date: "January 2018"
+output: 
+  html_document:
+    toc: true # table of content true
+    depth: 6  # upto three depths of headings (specified by #, ##, ###, ####)
+    number_sections: true  ## if you want number sections at each table header
+    #theme: spacelab  # many options for theme, this one is my favorite.
+    #highlight: tango  # specifies the syntax highlighting style
+    keep_md: true
+---
+<style>
+body {
+text-align: justify}
+</style>
+
+<br>
+
+```{r set-options, echo=FALSE, cache=FALSE}
+options(width = 250)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source_path = getwd()
+```
+
+```{r results='hide', message=FALSE, warning=FALSE}
+library(knitr)
+```
+
+In the previous sections we got ourselves familiar with regression and classification algorithms and got a fair knowledge of using the caret package. In this section, we focus on more advanced concepts such as:
+
+* Support vector machines
+* Bagging with random forests
+* Boosting with GBM
+* Regularization: ridge and lasso
+* XGBoost
+
+<br>
+
+# Support vector machines
+
+We are going to look at:
+
+* When does SVM excel
+* How Support vector classifier works
+* Support vectors
+* Hyper planes
+* Kernel trick
+* Implementing and tuning in R with caret package
+
+## When does SVM excel and how does it work
+
+Lets consider a linearly separable case. Clearly, the points shown in the graph can be separated in 2 classes. From the 2 lines that separate correctly both classes, ideally the orange one is better, because it has some margin between both classes. If we were to choose the blue line, we could easily start misclassifying if a dot was slightly left or right from it's original place.
+
+The highlighted points that determine the width of the margin are called the support vectors.
+
+```{r echo=FALSE, fig.width=3, fig.height=3}
+include_graphics(paste0(source_path,"/images/1.PNG"))
+```
+
+```{r echo=FALSE, fig.width=3, fig.height=3}
+include_graphics(paste0(source_path,"/images/2.PNG"))
+```
+
+What happen's if we then have a non-linear case? Will SVM work? Well this is where SVM excels. Even if we wanted to create a linear model to separate the classes, it is nearly impossible to do so. SVM on the other hand, handles non-linear relationships quite well.
+
+```{r echo=FALSE, fig.width=3, fig.height=3}
+include_graphics(paste0(source_path,"/images/3.PNG"))
+```
+
+Without entering into much detail, we can explain SVM with a couple of concepts. In an SVM, the points are transformed using kernels, which allows the points to be projected in a higher dimensional space. By doing this, we can find a hyperplane that actually separates the points linearly!
+
+```{r echo=FALSE, fig.width=3, fig.height=3}
+include_graphics(paste0(source_path,"/images/4.PNG"))
+```
+
+```{r echo=FALSE, fig.width=3, fig.height=3}
+include_graphics(paste0(source_path,"/images/5.PNG"))
+```
+
+```{r echo=FALSE, fig.width=3, fig.height=3}
+include_graphics(paste0(source_path,"/images/6.PNG"))
+```
+
+## Kernels
+
+We will be using the **BreastCancer** dataset from the **mlbenc** package. The goal for this logistic regression model will be to predict if the cases in the dataset are benign or not. In this case, the *class*, is the response variable, and the rest of the variables are factor variables.
+
+### Linear kernel
+
+```{r fig.width=7, fig.height=7}
+library(caret)
+library(kernlab)
+
+# Load data
+data(segmentationData, package = "caret")
+
+# Split data
+set.seed(100)
+trainRows  = createDataPartition(segmentationData$Class, p = 0.7, list = FALSE)
+trainData = segmentationData[trainRows, -c(1:2)]
+testData = segmentationData[-trainRows, -c(1:2)]
+
+str(trainData)
+summary(trainData)
+head(trainData)
+
+table(segmentationData$Class)
+
+# Since WS is half of PS, let's turn on downsampling in the trainControl caret method
+ctrl = trainControl(method = "repeatedcv"
+                    , repeats = 5
+                    , summaryFunction = twoClassSummary
+                    , classProbs = TRUE
+                    , sampling = 'down')
+
+
+# Define a tuning parameter grid - in this case only 1 tuning parameter (cost function)
+grid = expand.grid(C = c(0.25, 0.5, 0.75, 1, 1.25, 1.5))
+
+# Train and Tune the SVM
+svmLinear = train(Class ~ ., data = trainData
+                  , method = 'svmLinear'
+                  , preProc = c('center','scale')
+                  , metric = 'ROC'
+                  , tuneGrid = grid
+                  , trControl = ctrl)
+svmLinear
+
+
+```
+
+### Radio kernel
+
+```{r fig.width=7, fig.height=7}
+# Define a tuning parameter grid - in this case 2 tuning parameters (sigma and cost function)
+grid = expand.grid(sigma = c(0.01, 0.015)
+                   , C = c(0.25, 0.5, 0.75, 1, 1.25, 1.5))
+
+# Train and Tune the SVM
+svmRadial = train(Class ~ ., data = trainData
+                  , method = 'svmRadial'
+                  , preProc = c('center','scale')
+                  , metric = 'ROC'
+                  , tuneGrid = grid
+                  , trControl = ctrl)
+svmRadial
+
+
+```
+
+### Polynomial kernel
+
+```{r fig.width=7, fig.height=7}
+# Define a tuning parameter grid - in this case 3 tuning parameters (degree, scale and cost function)
+grid = expand.grid(scale = c(0.001, 0.01, 0.1)
+                   , degree = c(1,2,3)
+                   , C = c(0.25, 0.5, 0.75, 1, 1.25, 1.5))
+
+# Train and Tune the SVM
+svmPoly = train(Class ~ ., data = trainData
+                  , method = 'svmPoly'
+                  , preProc = c('center','scale')
+                  , metric = 'ROC'
+                  , tuneGrid = grid
+                  , trControl = ctrl)
+svmPoly
+```
+
+### Comparing the 3 models
+
+```{r fig.width=7, fig.height=7}
+# Using resamples
+comparisons = resamples(list(linear = svmLinear
+                             , radial = svmRadial
+                             , poly = svmPoly))
+```
+
+```{r fig.width=7, fig.height=7}
+# Plot it
+bwplot(comparisons
+       , metric  = "ROC"
+       , ylab = c('Linear','Radial','Polynomial'))
+```
+
+It seems that the radial kernel has a bit of an advantage when measuring using ROC. Let's use this Kernel to predict test data
+
+```{r fig.width=7, fig.height=7}
+# Predict data
+pred = predict(svmRadial, testData)
+caret::confusionMatrix(pred, testData$Class, positive = "WS")
+
+
+```
+
+<br>
+
+# Bagging with random forests
+
+In this sectio we will understand:
+
+* What is bagging
+* How bootstrap works
+* Random Forest algorithm
+* Why does RF excel
+* Implementation and tuning parameters
+
+## What is bagging
+
+A bootstrap is a random sample drawn with replacement (allows repetition). You repeat this process off choosing ramdon samples (bootstrapping). Bagging is just Bootstrap aggregation.
+
+## Random forest algorithm
+
+Since decision trees tend to be greedy and can give excesive importance to certian features, it is wise to build decision trees for a wide range of bootstrap samples. Additionally, we can also randomnly select a subset of features that we will use to split the data for each of those decision trees. Once you have grown the full forest of trees, typically we can take the mean or the majority class as our result prediction.
+
+```{r echo=FALSE, fig.width=3, fig.height=3}
+include_graphics(paste0(source_path,"/images/7.PNG"))
+```
+
+```{r fig.width=7, fig.height=7}
+# trainControl object
+ctrl = trainControl(method = "repeatedcv"
+                    , repeats = 5
+                    , summaryFunction = multiClassSummary
+                    , classProbs = TRUE)
+
+# grid
+grid = expand.grid(mtry = c(2,8,15,20,30))
+
+# Train 
+rf = train(Class ~ ., data = trainData
+           , method = "rf"
+           , preProc = c("center","scale")
+           , metric = "AUC"
+           , tuneGrid = grid
+           , trControl = ctrl)
+
+rf
+```
+
+```{r fig.width=7, fig.height=7}
+# trainControl object
+prec = predict(rf, testData)
+caret::confusionMatrix(pred, testData$Class)
+```
+
+<br>
+
+# Boosting with GBM
+
+In this section we will look at:
+
+* What is boosting
+* What is Stochastic Gradient Boosting
+* Why does it work and advantages
+* Implementation and tuning of GBM
+
+## What is boosting - Stochastic Gradient Boosting
+
+The concept of boosting is based on the idea that several weak learnes can be combined to form a strong learner, thereby improving accuracy. In bagging, the samples are drawn independent of each other. Boosting works in a similar way, except that the trees are grown sequentially. Each tree tries to predict the error left over the by previous tree. This makes is practically impossible to paralellise (compared to random forests). The algorithm starts with 
+
+* An initial prediction, like the mean of the response in regression or the log(odds) of probability in classification. 
+* The residuals are then used to build a model that minimises the loss function.
+* This new model is then added to the previous model and the procedure is then continued for a number of times. 
+* The **stochastic** in stochastic gradient boosting just comes by adding the step of randomnly sample the dataset before each tree iteration. 
+
+## Implementation in R - categorical variable
+
+```{r fig.width=7, fig.height=7}
+# Load dataset
+data(Glass, package = "mlbench")
+Glass$Type = make.names(Glass$Type)
+
+# Train/test split
+set.seed(100)
+trainRows = createDataPartition(Glass$Type, p = 0.7, list = FALSE)
+trainData = Glass[trainRows,]
+testData = Glass[-trainRows,]
+
+# MODEL PARAMETER LOOKUP
+modelLookup('gbm')
+```
+
+```{r fig.width=7, fig.height=7, warning=FALSE}
+# Train control
+ctrl = trainControl(method = "repeatedcv"
+                    , number = 10
+                    , repeats = 3
+                    , classProbs = T)
+
+# Set grid
+gbmGrid = expand.grid(interaction.depth = c(1,2)
+                      , n.trees = seq(100,1000, by = 400)
+                      , shrinkage = c(0.01,0.1)
+                      , n.minobsinnode = c(10, 30, 50))
+
+# Build the model
+gbmFit = train(Type ~ .
+               , data = trainData
+               , method = "gbm"
+               , metric = "Accuracy"
+               , trControl = ctrl
+               , tuneGrid = gbmGrid
+               , verbose = FALSE)
+
+
+```
+
+```{r fig.width=7, fig.height=7}
+# predictions
+pred = predict(gbmFit, testData)
+caret::confusionMatrix(pred, testData$Type) # accuracy is not bad and the confusion matrix seems pretty good.
+```
+
+## Implementation in R - continuous variable
+
+```{r fig.width=7, fig.height=7,  warning=FALSE}
+# Load data
+data(Sacramento, package = "caret")
+
+trainRows = createDataPartition(Sacramento$price, p = 0.7, list = FALSE)
+trainData = Sacramento[trainRows,]
+testData = Sacramento[-trainRows,]
+
+# trainControl
+ctrl = trainControl(method = "repeatedcv"
+                    , number = 10
+                    , repeats = 3
+                    , classProbs = F) #continuous variable does not need class probability
+
+# gbm grid
+gbmGrid = expand.grid(interaction.depth = c(1,2,3)
+                      , n.trees = seq(100, 1000, by = 400)
+                      , shrinkage = c(0.01, 0.1, 0.2)
+                      , n.minobsinnode = c (5, 10, 20))
+
+# model
+gbmFit = train(price ~ .
+               , data = trainData
+               , method = "gbm"
+               , metric = "RMSE"
+               , trControl = ctrl
+               , tuneGrid = gbmGrid
+               , verbose = FALSE)
+
+```
+```{r fig.width=7, fig.height=7}
+# predictions
+pred = predict(gbmFit, testData)
+DMwR::regr.eval(testData$price, pred)
+
+
+```
+
+<br>
+
+# Regularization: ridge and lasso
+
+In this section we are going to cover how to deal with overfitting in regression models with techniques like ridge and lasso. We will learn:
+
+* Ridge and lasso regression
+* Difference between Ridge and Lasso regression
+* Implementation and tuning in R
+* Elasticnet
+
+## Ridge and Lasso
+
+The mean squared error and OLS regression is a combination of variance and bias. It is possible to reduce the mean square error further by allowing the parameter estimates to be biased. In addition to OLS regression, we add a penalty term to the $\beta$ coefficient so that it shrinks. The $\lambda$ is the shrinkage or regularization parameter: the larger the $\lambda$, the influence of the predictor is reduced. The challenge is to find the best value of $\lambda$. This can be of 2 types: **Ridge** and **LASSO** regression. The main difference between them is:
+
+* Ridge regression retains all of the predictions, and will shrink the coefficients to a very small number (although never 0)
+* LASSO on the other hand, removes the unimportant predictions by assign the $\lambda$ coefficient to 0 for those variables.
+* Elasticnet is just a mixture of both Ridge and Lasso.
+
+
+```{r echo=FALSE, fig.width=3, fig.height=3}
+include_graphics(paste0(source_path,"/images/9.PNG"))
+```
+
+## Implementation of Ridge regularization.
+
+```{r fig.width=7, fig.height=7,  warning=FALSE}
+library(glmnet)
+library(caret)
+options(scipen = 999)
+
+# Define a not in function
+'%ni%' = Negate('%in%')
+
+# Read data
+prostate = read.csv("https://goo.gl/qmrDcY")
+
+# Split data
+set.seed(100)
+trainRows = createDataPartition(prostate$lpsa, p = 0.7, list = FALSE)
+trainData = prostate[trainRows, ]
+testData = prostate[-trainRows, ]
+
+train_x = as.matrix(trainData[, colnames(trainData) %ni% 'lpsa'])
+train_y = as.matrix(trainData[,'lpsa'])
+
+test_x = as.matrix(testData[, colnames(testData) %ni% 'lpsa'])
+test_y = as.matrix(testData[,'lpsa'])
+
+# Setting up the lambda grid for regularization
+grid = 10^seq(10,-2,length = 100)
+
+# Build the model
+ridgeMod = glmnet(train_x, train_y
+                  , alpha = 0, lambda = grid, thresh = 1e-12) # when alpha = 0 -> ridge Regression, alpha = 1 -> LASSO regression.
+ridgeMod
+```
+
+What is the best model? We can also plot this:
+
+* The xaxis represents the log(Lambda) (basically, when log(lambda) = 2 -> that represents, lambda = 100)
+* The numbers at the top, show how many predictors where included in the model -> since we were doing ridge regression, all predictors were included
+* There are 2 vertical lines -> the first one points to the lambda with lowest mean squared error, whilst the second one denotes the highest deviance within 1 standard deviation.
+* Log(value of bestlam) represents the most left line (lambda with lowest mean squared error)
+
+```{r fig.width=7, fig.height=7,  warning=FALSE}
+# What is the best Lambda for the model?
+cv.out = cv.glmnet(train_x, train_y, alpha = 0)
+bestlam = cv.out$lambda.min
+bestlam
+
+# Plots
+plot(cv.out)
+
+# Prediction
+pred = predict(ridgeMod, s = bestlam, newx = test_x)
+DMwR::regr.eval(test_y, pred)
+```
+
+Plotting the coefficients:
+
+* Each coloured line, refers to the $\beta$ of the coefficient of one of the variables.
+* As lambda increases, the coefficients shrink, but none of them become 0 (because of Ridge regression)
+
+```{r fig.width=7, fig.height=7,  warning=FALSE}
+# Plotting more coefficients
+coefs_ridge = predict(ridgeMod, type = "coefficients", s = bestlam)
+coefs_ridge
+plot(ridgeMod, xvar = "lambda")
+```
+
+## Implementation of LASSO regularization.
+
+```{r fig.width=7, fig.height=7,  warning=FALSE}
+lassoMod = glmnet(train_x, train_y, alpha = 1, lambda = grid, thresh = 1e-12)
+cv.out = cv.glmnet(train_x, train_y, alpha = 1)
+bestlam  = cv.out$lambda.min
+bestlam
+
+# plot
+plot(cv.out)
+
+# predict
+pred = predict(lassoMod, s = bestlam, newx = test_x)
+DMwR::regr.eval(test_y, pred)
+
+# Coefficients
+coefs_lasso = predict(lassoMod, type = "coefficients", s = bestlam)
+coefs_lasso
+plot(lassoMod, xvar = "lambda")
+```
+
+<br>
+
+# XGBoost
+
+XGBoost is an algorithm that became popular amongst Kagglers for winning competitions. Internally, it uses the regularization techniques and boosted trees, 2 things that we have seen above. In this section we will understand:
+
+* Tuning parameters
+* XGBoost model by hand
+* Tuning XGBoost with caret package
+
+## Tuning parameters
+
+```{r echo=FALSE, fig.width=3, fig.height=3}
+include_graphics(paste0(source_path,"/images/10.PNG"))
+include_graphics(paste0(source_path,"/images/11.PNG"))
+```
+
+* There are 3 types of boosters available within XGBoost (and each has its own parameters): linear, tree and dart
+* The parameters are split in 3 parts. 1 -> the general parameters where we select the booster, 2 -> the booster parameters are the tuning parameters for the booster we chose in step 1. Finally, the task parameters where we set the objective function, evaluation metric and base probability cut off score.
+
+## XGBoost without caret package
+
+```{r fig.width=7, fig.height=7,  warning=FALSE}
+# install.packages("drat", repos = "https://cran.rstudio.com")
+# drat::addRepo("dmlc")
+# install.packages(c("xgboost"
+#                    ,"Ckmeans.1d.dp" # -> read for xgb.plot.importance
+#                    ,"DiagrammeR")   # -> read for xgb.plot.tree
+#                  , repos = "https://cran.rstudio.com")
+
+# Set up
+library(caret)
+library(xgboost)
+library(Matrix)
+options = (scipen = 999)
+'%ni%' = Negate('%in%')
+
+# Datasets
+prostate = read.csv('https://goo.gl/qmrDcY')
+set.seed(100)
+trainRows = createDataPartition(prostate$lpsa, p = 0.7, list = FALSE)
+trainData = prostate[trainRows,]
+testData = prostate[-trainRows,]
+
+# Creating the matrix for training model
+trainData_xg = xgb.DMatrix(data.matrix(trainData[,colnames(trainData) %ni% 'lpsa']), label = as.numeric(trainData$lpsa))
+testData_xg = xgb.DMatrix(data.matrix(trainData[,'lpsa']))
+
+watchlist = list(train = trainData_xg, test = testData_xg)
+```
+
+```{r fig.width=7, fig.height=7,  warning=FALSE}
+param = list("objective" = "reg:linear"
+             , "eval_metric" = "rmse")
+cv.nround = 5
+cv.nfold = 3
+cvMod = xgb.cv(param = param
+               , data = trainData_xg
+               , nfold = cv.nfold
+               , nrounds = cv.nround)
+cvMod
+
+# Train the XGBoost model
+nrounds = 50
+xgMod = xgb.train(param = param, data = trainData_xg, nrounds = nrounds, booster = "gblinear")
+xgMod
+
+# Predict
+pred = predict(xgMod, testData_xg)
+DMwR::regr.eval(testData$lpsa, pred)
+
+
+```
+
+
+## XGBoost with caret package
+
+```{r fig.width=7, fig.height=7,  warning=FALSE}
+# training control parameters
+xgb_trcontrol = trainControl(method = "cv"
+                             , number = 5
+                             , verboseIter = TRUE
+                             , returnData = FALSE
+                             , returnResamp = "all")
+
+# Tuning parameters for xgbLinear
+modelLookup('xgbLinear')
+
+# Tune the model
+set.seed(100)
+xgb_train = train(x = as.matrix(trainData[, colnames(trainData) %ni% "lpsa"])
+                  , y = trainData$lpsa
+                  , trControl = xgb_trcontrol
+                  , tuneLength = 3
+                  , method = "xgbLinear")
+
+# Predict
+pred = predict(xgb_train, testData)
+DMwR::regr.eval(testData$lpsa, pred)
+
+
+```
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,7 @@
+name: "Core machine learning"
+navbar:
+  title: "Core machine learning"
+  left:
+    - text: "Core machine learning"
+      href: index.html
+
